@@ -5,7 +5,10 @@ from urllib.parse import urljoin, urlparse
 import time
 import os
 import re
+import random
 from datetime import datetime
+
+year = "2024"
 
 def get_final_pdf_url(redirect_url, headers):
     """Method with multiple longer waits"""
@@ -21,25 +24,25 @@ def get_final_pdf_url(redirect_url, headers):
         
         # First request
         print(f"📤 Making first request...")
-        response1 = session.get(redirect_url, allow_redirects=True, timeout=30)
+        response1 = session.get(redirect_url, allow_redirects=True, timeout=10)
         print(f"📍 First result: {response1.url}")
         
         # Wait longer - some redirects are very slow
-        print(f"⏰ Waiting 15 seconds for delayed redirect...")
-        time.sleep(15)
+        print(f"⏰ Waiting 10 seconds for delayed redirect...")
+        time.sleep(10)
         
         # Second request
         print(f"📤 Making second request...")
-        response2 = session.get(response1.url, allow_redirects=True, timeout=30)
+        response2 = session.get(response1.url, allow_redirects=True, timeout=10)
         print(f"📍 Second result: {response2.url}")
         
         # Even longer wait
-        print(f"⏰ Final wait: 10 seconds...")
-        time.sleep(10)
+        print(f"⏰ Final wait: 6 seconds...")
+        time.sleep(6)
         
         # Third request
         print(f"📤 Making final request...")
-        response3 = session.get(response2.url, allow_redirects=True, timeout=30)
+        response3 = session.get(response2.url, allow_redirects=True, timeout=10)
         final_url = response3.url
         
         print(f"📍 Final URL: {final_url}")
@@ -53,7 +56,7 @@ def get_final_pdf_url(redirect_url, headers):
         print(f"💥 Error: {e}")
         return None
 
-url = "https://www1.bca.gov.sg/about-us/news-and-publications/circulars?year=2024"  # Replace with your URL
+url = f"https://www1.bca.gov.sg/about-us/news-and-publications/circulars?year={year}"  # Replace with your URL
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -74,12 +77,49 @@ if response.status_code == 200:
     links = soup.find_all('a')
     print(f"Found {len(links)} links on the page")
     
+    print("\nAll links found:")
+    print("=" * 50)
+    for i, link in enumerate(links, 1):
+        href = link.get('href')
+        text = link.text.strip()
+        print(f"{i}. URL: {href}")
+        if text:
+            print(f"   Text: {text}")
+        print()
+
     all_links = soup.find_all('a', href=True)
     bca_circulars = []
     
     # Separate patterns for direct PDFs and redirects
-    direct_pdf_pattern = r'/docs/default-source/docs-corp-news-and-publications/circulars/.*\.pdf'
-    redirect_pattern = r'https://go\.gov\.sg/bca-circular-.*'
+    direct_pdf_pattern = (
+        r'https://www.corenet.gov.sg/.*\.pdf|'
+        r'/docs/default-source/docs-corp-news-and-publications/circulars/.*\.pdf'
+    )
+    
+    redirect_pattern = (
+        r'https://go\.gov\.sg/bca-circular-.*|'
+        r'https://go\.gov\.sg/bca-guidance-.*|'
+        r'https://go\.gov\.sg/bca-advisory-.*|'
+        r'https://go\.gov\.sg/bca-enhanced.*|'
+        r'https://go\.gov\.sg/approved-.*|'
+        r'https://go\.gov\.sg/iacc-.*|'
+        r'https://go\.gov\.sg/annual-.*|'
+        r'https://go\.gov\.sg/bca-ggbs-.*|'
+        r'https://go\.gov\.sg/bca-adv-.*|'
+        r'https://go\.gov\.sg/bca-nea-.*|'
+        r'https://go\.gov\.sg/reopening-.*|'
+        r'https://go\.gov\.sg/bca-distancing-.*|'
+        r'https://go\.gov\.sg/covid19-.*|'
+        r'https://go\.gov\.sg/bca-amusement-.*|'
+        r'https://go\.gov\.sg/bca-sifma-.*|'
+        r'https://go\.gov\.sg/bca-mom-.*|'
+        r'https://go\.gov\.sg/bca-adjustment-.*|'
+        r'https://go\.gov\.sg/bca-mandatory-.*|'
+        r'https://go\.gov\.sg/bca-supplementary-.*|'
+        r'https://go\.gov\.sg/cotma-.*|'
+        r'https://go\.gov\.sg/bca-changes-.*|'
+        r'https://go\.gov\.sg/circular-.*'
+    )
 
     print("\nProcessing links...")
     print("=" * 50)
@@ -103,7 +143,7 @@ if response.status_code == 200:
                 parent_text = parent.get_text(strip=True)
                 
             circular_info = {
-                'Year': "2024",  # Fixed the year
+                'Year': year,  # Fixed the year
                 'filename': filename,
                 'title': title if title and title != "Read More" else filename.replace('.pdf', '').replace('-', ' ').title(),
                 'url': full_url,
@@ -145,7 +185,7 @@ if response.status_code == 200:
                     parent_text = parent.get_text(strip=True)
                     
                 circular_info = {
-                    'Year': "2024",
+                    'Year': year,
                     'filename': filename,
                     'title': title if title and title != "Read More" else href.split('/')[-1].replace('-', ' ').title(),
                     'url': final_pdf_url,  # Use the final PDF URL
@@ -186,8 +226,8 @@ if response.status_code == 200:
         
     # Save to CSV
     if unique_circulars:
-        save_directory1 = r"C:\Users\USER\0. Coding\BCA Circulars\Extracted CSV"
-        save_directory2 = r"C:\Users\USER\0. Coding\BCA Circulars\Extracted URL"
+        save_directory1 = rf"C:\Users\USER\0. Coding\BCA Circulars\Extracted CSV_{year}"
+        save_directory2 = rf"C:\Users\USER\0. Coding\BCA Circulars\Extracted URL_{year}"
 
         if not os.path.exists(save_directory1):
             os.makedirs(save_directory1)
@@ -196,12 +236,12 @@ if response.status_code == 200:
 
         df = pd.DataFrame(unique_circulars)
         timestamp = datetime.now().strftime("%Y%m%d")
-        csv_filename = os.path.join(save_directory1, f'bca_circulars_{timestamp}.csv')
+        csv_filename = os.path.join(save_directory1, f'bca_circulars_{year}_{timestamp}.csv')
         df.to_csv(csv_filename, index=False)
         print(f"✓ Saved {len(unique_circulars)} circulars to '{csv_filename}'")
         
         # Also create a simple list of URLs for easy copying
-        urls_filename = os.path.join(save_directory2, f'bca_circular_urls_{timestamp}.txt')
+        urls_filename = os.path.join(save_directory2, f'bca_circular_urls_{year}_{timestamp}.txt')
         with open(urls_filename, 'w') as f:
             for circular in unique_circulars:
                 f.write(f"{circular['url']}\n")
@@ -211,7 +251,7 @@ if response.status_code == 200:
     download_choice = input("\nDo you want to download all PDF files? (y/n): ").lower()
 
     if download_choice == 'y':
-        download_folder = r"C:\Users\USER\0. Coding\BCA Circulars\bca_circulars"
+        download_folder = rf"C:\Users\USER\0. Coding\BCA Circulars\bca_circulars_{year}"
         if not os.path.exists(download_folder):
             os.makedirs(download_folder)
         
@@ -237,7 +277,7 @@ if response.status_code == 200:
             
             # Be respectful with requests
             if i < len(unique_circulars):
-                time.sleep(1)
+                time.sleep(random.uniform(2,4))  # Random delay between 2 to 4 seconds
         
         print(f"\n✓ Download complete! Files saved to '{download_folder}' folder")
 
