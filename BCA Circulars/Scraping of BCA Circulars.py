@@ -145,4 +145,5 @@ if response.status_code == 200:
     print("="*80)
 
 else:
+
     print(f"Failed to retrieve the page. Status code: {response.status_code}")

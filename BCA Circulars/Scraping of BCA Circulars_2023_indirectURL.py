@@ -8,25 +8,52 @@ import re
 from datetime import datetime
 
 def get_final_pdf_url(redirect_url, headers):
-    """Follow redirects to get the final PDF URL"""
+    """Method with multiple longer waits"""
     try:
-        print(f"Following redirect: {redirect_url}")
-        response = requests.head(redirect_url, headers=headers, allow_redirects=True, timeout=10)
-        final_url = response.url
+        print(f"📥 Starting extended redirect processing: {redirect_url}")
         
-        # Check if final URL is a PDF
+        session = requests.Session()
+        session.headers.update(headers)
+        
+        # Wait before even making the first request
+        print(f"⏰ Pre-request wait: 3 seconds...")
+        time.sleep(3)
+        
+        # First request
+        print(f"📤 Making first request...")
+        response1 = session.get(redirect_url, allow_redirects=True, timeout=30)
+        print(f"📍 First result: {response1.url}")
+        
+        # Wait longer - some redirects are very slow
+        print(f"⏰ Waiting 15 seconds for delayed redirect...")
+        time.sleep(15)
+        
+        # Second request
+        print(f"📤 Making second request...")
+        response2 = session.get(response1.url, allow_redirects=True, timeout=30)
+        print(f"📍 Second result: {response2.url}")
+        
+        # Even longer wait
+        print(f"⏰ Final wait: 10 seconds...")
+        time.sleep(10)
+        
+        # Third request
+        print(f"📤 Making final request...")
+        response3 = session.get(response2.url, allow_redirects=True, timeout=30)
+        final_url = response3.url
+        
+        print(f"📍 Final URL: {final_url}")
+        
         if final_url.lower().endswith('.pdf') or 'pdf' in final_url.lower():
-            print(f"✓ Found final PDF URL: {final_url}")
             return final_url
         else:
-            print(f"⚠ Final URL doesn't appear to be a PDF: {final_url}")
             return None
             
-    except requests.RequestException as e:
-        print(f"✗ Error following redirect {redirect_url}: {e}")
+    except Exception as e:
+        print(f"💥 Error: {e}")
         return None
 
-url = "https://www1.bca.gov.sg/about-us/news-and-publications/circulars?year=2024"  # Replace with your URL
+url = "https://www1.bca.gov.sg/about-us/news-and-publications/circulars?year=2023"  # Replace with your URL
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -159,8 +186,8 @@ if response.status_code == 200:
         
     # Save to CSV
     if unique_circulars:
-        save_directory1 = r"C:\Users\USER\0. Coding\BCA Circulars\Extracted CSV"
-        save_directory2 = r"C:\Users\USER\0. Coding\BCA Circulars\Extracted URL"
+        save_directory1 = r"C:\Users\USER\0. Coding\BCA Circulars\Extracted_2023 CSV"
+        save_directory2 = r"C:\Users\USER\0. Coding\BCA Circulars\Extracted_2023 URL"
 
         if not os.path.exists(save_directory1):
             os.makedirs(save_directory1)
@@ -184,7 +211,7 @@ if response.status_code == 200:
     download_choice = input("\nDo you want to download all PDF files? (y/n): ").lower()
 
     if download_choice == 'y':
-        download_folder = r"C:\Users\USER\0. Coding\BCA Circulars\bca_circulars"
+        download_folder = r"C:\Users\USER\0. Coding\BCA Circulars\bca_circulars_2023"
         if not os.path.exists(download_folder):
             os.makedirs(download_folder)
         
