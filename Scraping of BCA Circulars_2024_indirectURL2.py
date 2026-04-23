@@ -1,14 +1,28 @@
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 import time
 import os
 import re
 import random
 from datetime import datetime
+from scraped_filenames import already_scraped_filenames
 
-year = "2024"
+year = "2025"  # Set to "All" or a specific year like "2025"
+
+def extract_title_and_context(link, href):
+    title_tag = link.find('h3')
+    if title_tag:
+        title = title_tag.get_text(" ", strip=True)
+    else:
+        title = link.get_text(" ", strip=True)
+        if title == "Read More":
+            title = href.split('/')[-1].replace('.pdf', '').replace('-', ' ').title()
+
+    context = link.get_text(" ", strip=True)
+    return title, context
+
 
 def get_final_pdf_url(redirect_url, headers):
     """Method with multiple longer waits"""
@@ -56,43 +70,46 @@ def get_final_pdf_url(redirect_url, headers):
         print(f"💥 Error: {e}")
         return None
 
-url = f"https://www1.bca.gov.sg/about-us/news-and-publications/circulars?year={year}"  # Replace with your URL
-
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Referer': 'https://www1.bca.gov.sg/resources/circulars/',
 }
 
-# Send GET request to the URL
-response = requests.get(url, headers=headers)
+bca_circulars = []
+page = 1
 
-# Check if request was successful
-if response.status_code == 200:
-    # Parse the HTML content
+while True:
+    if year == "All":
+        url = "https://www1.bca.gov.sg/resources/circulars/"
+    else:
+        url = f"https://www1.bca.gov.sg/resources/circulars/?filters=%5B%7B%22id%22%3A%22year%22%2C%22items%22%3A%5B%7B%22id%22%3A%222025%22%7D%5D%7D%5D&page={page}"
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"Failed to retrieve page {page}. Status code: {response.status_code}")
+        break
+    
     soup = BeautifulSoup(response.content, 'html.parser')
+    page_links = soup.find_all('a', href=True)
     
-    # Now you can work with the parsed content
-    print("Page title:", soup.title.text if soup.title else "No title found")
+    if not page_links:
+        print(f"No links found on page {page}. Stopping.")
+        break
     
-    # Example: Find all links
-    links = soup.find_all('a')
-    print(f"Found {len(links)} links on the page")
+    print(f"Found {len(page_links)} links on page {page}")
     
-    print("\nAll links found:")
-    print("=" * 50)
-    for i, link in enumerate(links, 1):
-        href = link.get('href')
-        text = link.text.strip()
-        print(f"{i}. URL: {href}")
-        if text:
-            print(f"   Text: {text}")
-        print()
-
-    all_links = soup.find_all('a', href=True)
-    bca_circulars = []
+    # Track circulars before processing this page
+    len_before = len(bca_circulars)
     
+    # Process links from this page
+    skip_filenames = already_scraped_filenames
+        
     # Separate patterns for direct PDFs and redirects
     direct_pdf_pattern = (
         r'https://www.corenet.gov.sg/.*\.pdf|'
+        r'https://isomer-user-content\.by\.gov\.sg/.*\.pdf|'
         r'/docs/default-source/docs-corp-news-and-publications/circulars/.*\.pdf'
     )
     
@@ -121,33 +138,31 @@ if response.status_code == 200:
         r'https://go\.gov\.sg/circular-.*'
     )
 
-    print("\nProcessing links...")
-    print("=" * 50)
-
+    print(f"\nProcessing links from page {page}...")
+    
     direct_pdf_count = 0
     redirect_count = 0
 
-    for link in all_links:
+    for link in page_links:
         href = link['href']
         
         # Check for direct PDF links
         if re.search(direct_pdf_pattern, href, re.IGNORECASE):
             full_url = urljoin(url, href)
             filename = href.split('/')[-1].split('?')[0]
-            title = link.get_text(strip=True)
-            
-            # Get context from parent elements
-            parent_text = ""
-            parent = link.find_parent()
-            if parent:
-                parent_text = parent.get_text(strip=True)
+
+            if filename in skip_filenames:
+                print(f"→ Skipping already scraped direct PDF: {filename}")
+                continue
+
+            title, context = extract_title_and_context(link, href)
                 
             circular_info = {
-                'Year': year,  # Fixed the year
+                'Year': year,
                 'filename': filename,
-                'title': title if title and title != "Read More" else filename.replace('.pdf', '').replace('-', ' ').title(),
+                'title': title,
                 'url': full_url,
-                'context': parent_text[:200] + "..." if len(parent_text) > 200 else parent_text,
+                'context': context[:200] + "..." if len(context) > 200 else context,
                 'source_type': 'direct_pdf'
             }
             
@@ -157,41 +172,38 @@ if response.status_code == 200:
         # Check for go.gov.sg redirect links
         elif re.search(redirect_pattern, href, re.IGNORECASE):
             redirect_count += 1
-            print(f"\n🔄 FOUND REDIRECT LINK #{redirect_count}: {href}")  # ADD THIS LINE
-            print(f"Link text: '{link.get_text(strip=True)}'")  # ADD THIS LINE
+            print(f"\n🔄 FOUND REDIRECT LINK #{redirect_count}: {href}")
+            print(f"Link text: '{link.get_text(strip=True)}'")
             print(f"\nProcessing redirect link: {href}")
             
-            # Follow the redirect to get final PDF URL
-            print(f"Starting redirect processing... (this should take 8+ seconds)")  # ADD THIS LINE
-            start_time = time.time()  # ADD THIS LINE
+            print(f"Starting redirect processing... (this should take 8+ seconds)")
+            start_time = time.time()
         
             final_pdf_url = get_final_pdf_url(href, headers)
             
-            end_time = time.time()  # ADD THIS LINE
-            print(f"Redirect processing took {end_time - start_time:.2f} seconds")  # ADD THIS LINE
+            end_time = time.time()
+            print(f"Redirect processing took {end_time - start_time:.2f} seconds")
             
             if final_pdf_url:
                 # Extract filename from final URL
                 filename = final_pdf_url.split('/')[-1].split('?')[0]
                 if not filename.endswith('.pdf'):
                     filename = href.split('/')[-1] + '.pdf'  # Fallback filename
+
+                if filename in skip_filenames:
+                    print(f"→ Skipping already scraped redirect PDF: {filename}")
+                    continue
                 
-                title = link.get_text(strip=True)
-                
-                # Get context from parent elements
-                parent_text = ""
-                parent = link.find_parent()
-                if parent:
-                    parent_text = parent.get_text(strip=True)
+                title, context = extract_title_and_context(link, href)
                     
                 circular_info = {
                     'Year': year,
                     'filename': filename,
-                    'title': title if title and title != "Read More" else href.split('/')[-1].replace('-', ' ').title(),
-                    'url': final_pdf_url,  # Use the final PDF URL
-                    'context': parent_text[:200] + "..." if len(parent_text) > 200 else parent_text,
+                    'title': title,
+                    'url': final_pdf_url,
+                    'context': context[:200] + "..." if len(context) > 200 else context,
                     'source_type': 'redirect',
-                    'original_redirect_url': href  # Keep track of original redirect
+                    'original_redirect_url': href
                 }
                 
                 bca_circulars.append(circular_info)
@@ -199,91 +211,102 @@ if response.status_code == 200:
             
             # Add a small delay between redirect requests to be respectful
             time.sleep(0.5)
+    
+    len_after = len(bca_circulars)
+    new_circulars = len_after - len_before
+    print(f"Added {new_circulars} new circulars from page {page}")
+    
+    if new_circulars == 0:
+        print(f"No new circulars found on page {page}. Stopping pagination.")
+        break
+    
+    page += 1
 
-    print(f"\nProcessing complete!")
-    print("=" * 50)
+print(f"\nProcessing complete!")
+print("=" * 50)
 
-    # Remove duplicates based on final URL
-    seen_urls = set()
-    unique_circulars = []
-    for circular in bca_circulars:
-        if circular['url'] not in seen_urls:
-            unique_circulars.append(circular)
-            seen_urls.add(circular['url'])
+# Remove duplicates based on final URL
+seen_urls = set()
+unique_circulars = []
+for circular in bca_circulars:
+    if circular['url'] not in seen_urls:
+        unique_circulars.append(circular)
+        seen_urls.add(circular['url'])
 
-    print(f"Found {len(unique_circulars)} unique BCA circular PDFs:")
-    print("=" * 80)
+print(f"Found {len(unique_circulars)} unique BCA circular PDFs:")
+print("=" * 80)
 
-    # Display results
+# Display results
+for i, circular in enumerate(unique_circulars, 1):
+    print(f"{i:2d}. {circular['title']}")
+    print(f"    File: {circular['filename']}")
+    print(f"    Type: {circular['source_type']}")
+    if circular['source_type'] == 'redirect':
+        print(f"    Original: {circular['original_redirect_url']}")
+    print(f"    URL:  {circular['url']}")
+    print()
+    
+# Save to CSV
+if unique_circulars:
+    save_directory1 = f"C:\\Users\\USER\\0. Coding\\BCA Circulars\\Extracted CSV_{year}"
+    save_directory2 = f"C:\\Users\\USER\\0. Coding\\BCA Circulars\\Extracted URL_{year}"
+
+    if not os.path.exists(save_directory1):
+        os.makedirs(save_directory1)
+    if not os.path.exists(save_directory2):
+        os.makedirs(save_directory2)
+
+    df = pd.DataFrame(unique_circulars)
+    timestamp = datetime.now().strftime("%Y%m%d")
+    csv_filename = os.path.join(save_directory1, f'bca_circulars_{year}_{timestamp}.csv')
+    df.to_csv(csv_filename, index=False)
+    print(f"✓ Saved {len(unique_circulars)} circulars to '{csv_filename}'")
+    
+    # Also create a simple list of URLs for easy copying
+    urls_filename = os.path.join(save_directory2, f'bca_circular_urls_{year}_{timestamp}.txt')
+    with open(urls_filename, 'w') as f:
+        for circular in unique_circulars:
+            f.write(f"{circular['url']}\n")
+    print(f"✓ Saved URLs list to '{urls_filename}'")
+
+# Optional: Download all PDFs
+download_choice = input("\nDo you want to download all PDF files? (y/n): ").lower()
+
+if download_choice == 'y':
+    download_folder = f"C:\\Users\\USER\\0. Coding\\BCA Circulars\\bca_circulars_{year}"
+    if not os.path.exists(download_folder):
+        os.makedirs(download_folder)
+    
+    print(f"\nDownloading {len(unique_circulars)} PDF files...")
+    
     for i, circular in enumerate(unique_circulars, 1):
-        print(f"{i:2d}. {circular['title']}")
-        print(f"    File: {circular['filename']}")
-        print(f"    Type: {circular['source_type']}")
-        if circular['source_type'] == 'redirect':
-            print(f"    Original: {circular['original_redirect_url']}")
-        print(f"    URL:  {circular['url']}")
-        print()
-        
-    # Save to CSV
-    if unique_circulars:
-        save_directory1 = rf"C:\Users\USER\0. Coding\BCA Circulars\Extracted CSV_{year}"
-        save_directory2 = rf"C:\Users\USER\0. Coding\BCA Circulars\Extracted URL_{year}"
-
-        if not os.path.exists(save_directory1):
-            os.makedirs(save_directory1)
-        if not os.path.exists(save_directory2):
-            os.makedirs(save_directory2)
-
-        df = pd.DataFrame(unique_circulars)
-        timestamp = datetime.now().strftime("%Y%m%d")
-        csv_filename = os.path.join(save_directory1, f'bca_circulars_{year}_{timestamp}.csv')
-        df.to_csv(csv_filename, index=False)
-        print(f"✓ Saved {len(unique_circulars)} circulars to '{csv_filename}'")
-        
-        # Also create a simple list of URLs for easy copying
-        urls_filename = os.path.join(save_directory2, f'bca_circular_urls_{year}_{timestamp}.txt')
-        with open(urls_filename, 'w') as f:
-            for circular in unique_circulars:
-                f.write(f"{circular['url']}\n")
-        print(f"✓ Saved URLs list to '{urls_filename}'")
-
-    # Optional: Download all PDFs
-    download_choice = input("\nDo you want to download all PDF files? (y/n): ").lower()
-
-    if download_choice == 'y':
-        download_folder = rf"C:\Users\USER\0. Coding\BCA Circulars\bca_circulars_{year}"
-        if not os.path.exists(download_folder):
-            os.makedirs(download_folder)
-        
-        print(f"\nDownloading {len(unique_circulars)} PDF files...")
-        
-        for i, circular in enumerate(unique_circulars, 1):
-            try:
-                print(f"Downloading {i}/{len(unique_circulars)}: {circular['filename']}")
-                
-                pdf_response = requests.get(circular['url'], headers=headers, stream=True)
-                pdf_response.raise_for_status()
-                
-                filepath = os.path.join(download_folder, circular['filename'])
-                
-                with open(filepath, 'wb') as f:
-                    for chunk in pdf_response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                
-                print(f"✓ Downloaded: {circular['filename']}")
-                
-            except requests.RequestException as e:
-                print(f"✗ Failed to download {circular['filename']}: {e}")
+        try:
+            print(f"Downloading {i}/{len(unique_circulars)}: {circular['filename']}")
             
-            # Be respectful with requests
-            if i < len(unique_circulars):
-                time.sleep(random.uniform(2,4))  # Random delay between 2 to 4 seconds
+            filepath = os.path.join(download_folder, circular['filename'])
+            if os.path.exists(filepath):
+                print(f"→ File already exists, skipping: {circular['filename']}")
+                continue
+            
+            pdf_response = requests.get(circular['url'], headers=headers, stream=True)
+            pdf_response.raise_for_status()
+            
+            with open(filepath, 'wb') as f:
+                for chunk in pdf_response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            print(f"✓ Downloaded: {circular['filename']}")
+            
+        except requests.RequestException as e:
+            print(f"✗ Failed to download {circular['filename']}: {e}")
         
-        print(f"\n✓ Download complete! Files saved to '{download_folder}' folder")
+        # Be respectful with requests
+        if i < len(unique_circulars):
+            time.sleep(random.uniform(2,4))  # Random delay between 2 to 4 seconds
+    
+    print(f"\n✓ Download complete! Files saved to '{download_folder}' folder")
 
-    print("\n" + "="*80)
-    print("SCRAPING COMPLETE")
-    print("="*80)
+print("\n" + "="*80)
+print("SCRAPING COMPLETE")
+print("="*80)
 
-else:
-    print(f"Failed to retrieve the page. Status code: {response.status_code}")
