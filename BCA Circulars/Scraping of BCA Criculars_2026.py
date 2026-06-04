@@ -15,11 +15,19 @@ def save_scraped_filename(filename):
     with open(SCRAPED_LOG, "w", encoding="utf-8") as f:
         f.write(updated)
 
-def scrape_bca_circulars():
+def scrape_bca_circulars(max_pages=None, download_pdfs=None):
+    """Scrape BCA circulars.
+
+    Args:
+        max_pages (int|None): if set, limit scraping to this many listing pages.
+        download_pdfs (bool|None): if None, prompt the user; otherwise use value.
+    """
     results = []
 
-    # ── User prompts ──────────────────────────────────────────────
-    download_pdfs = input("Do you want to download the PDF files? (y/n): ").strip().lower() == 'y'
+    # ── User prompts / flags ──────────────────────────────────────
+    # If a caller passed download_pdfs explicitly, use it; otherwise prompt.
+    if download_pdfs is None:
+        download_pdfs = input("Do you want to download the PDF files? (y/n): ").strip().lower() == 'y'
 
     year_filter = None
     if download_pdfs:
@@ -113,8 +121,29 @@ def scrape_bca_circulars():
                     const yearMatch = date.match(/20\\d{2}/);
                     const year = yearMatch ? yearMatch[0] : '';
 
-                    const titleEl = link.querySelector('h3, h2, h4');
-                    const title = (titleEl?.innerText || link.innerText).trim();
+                    // prefer a heading or the listing span (e.g. line-clamp-3) in the
+                    // item container; fall back to link/container text. Remove any
+                    // inline SVG icons so they don't pollute the title text.
+                    const titleEl = container.querySelector('h3, h2, h4, span.line-clamp-3')
+                                  || link.querySelector('h3, h2, h4, span.line-clamp-3');
+                    let title = '';
+                    if (titleEl) {
+                        const svg = titleEl.querySelector('svg');
+                        if (svg) svg.remove();
+                        title = (titleEl.innerText || '').trim();
+                    } else {
+                        title = (link.innerText || container.innerText || '').trim();
+                    }
+
+                    // fallback: if innerText was empty (e.g. trimmed out), try
+                    // the element's `title` attribute or the link/container title.
+                    if (!title) {
+                        title = (titleEl && (titleEl.getAttribute('title') || ''))
+                              || (link.getAttribute && (link.getAttribute('title') || ''))
+                              || (container.getAttribute && (container.getAttribute('title') || ''))
+                              || '';
+                        title = title.trim();
+                    }
 
                     const url = href;
                     const urlPath = new URL(url).pathname;
@@ -129,7 +158,8 @@ def scrape_bca_circulars():
             }
         """
 
-        for page_num in range(1, total_pages + 1):
+        last_page = total_pages if max_pages is None else min(total_pages, int(max_pages))
+        for page_num in range(1, last_page + 1):
             print(f"Scraping page {page_num}...")
 
             # Navigate directly to each page by URL — avoids SPA transition bleed
@@ -237,4 +267,19 @@ def scrape_bca_circulars():
         print(f"\nPDF download complete. Files saved to '{pdf_folder}/'")
         print(f"Filenames logged to '{SCRAPED_LOG}'")
 
-scrape_bca_circulars()
+if __name__ == '__main__':
+    # Allow non-interactive testing via environment variables:
+    # TEST_MAX_PAGES: number of listing pages to scrape
+    # TEST_DOWNLOAD_PDFS: '1' to download, '0' to skip (defaults to prompt)
+    test_max = os.environ.get('TEST_MAX_PAGES')
+    test_dl = os.environ.get('TEST_DOWNLOAD_PDFS')
+    if test_dl is not None:
+        dl_flag = test_dl.strip() == '1'
+    else:
+        dl_flag = None
+
+    # If TEST_MAX_PAGES is set, run non-interactively for that many pages.
+    if test_max:
+        scrape_bca_circulars(max_pages=int(test_max), download_pdfs=dl_flag)
+    else:
+        scrape_bca_circulars()
